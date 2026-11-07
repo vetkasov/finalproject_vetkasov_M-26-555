@@ -6,12 +6,18 @@
 
 ## Установка и запуск
 
-Нужны Python 3.12 или новее и [uv](https://docs.astral.sh/uv/).
+Нужны Git, Python 3.12 или новее и [uv](https://docs.astral.sh/uv/).
 
 ~~~sh
-make install
+git clone https://github.com/vetkasov/finalproject_vetkasov_M-26-555.git
+cd finalproject_vetkasov_M-26-555
+uv sync --locked
 uv run project
 ~~~
+
+Команда `make install` выполняет ту же установку. Для запуска приложения
+ключи API не нужны. Чтобы проверить работу без обращения к API, после входа
+выполните `buy --currency USD --amount 1` и `show-portfolio`.
 
 Равнозначный запуск из исходников — `python main.py` в окружении проекта.
 Команда `make lint` проверяет стиль и форматирование через Ruff,
@@ -59,6 +65,8 @@ exit
 При наличии фиатных курсов попробуйте `show-rates --base EUR` и
 `show-portfolio --base EUR`. `update-rates` без аргументов опрашивает оба
 источника. `help` показывает команды, а `help buy` — параметры покупки.
+Для портфеля в BTC или другой криптовалюте выводится больше знаков
+после запятой, чтобы небольшие суммы оставались видны.
 
 При регистрации создаётся пустой портфель. Пароль хранится как хеш
 PBKDF2-HMAC-SHA256 с индивидуальной солью. Успешный `login` заменяет текущую

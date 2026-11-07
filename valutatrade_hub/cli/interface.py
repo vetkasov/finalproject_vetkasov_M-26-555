@@ -7,7 +7,7 @@ from datetime import datetime
 from prettytable import PrettyTable
 
 from valutatrade_hub.core import usecases
-from valutatrade_hub.core.currencies import CURRENCY_REGISTRY
+from valutatrade_hub.core.currencies import CURRENCY_REGISTRY, CryptoCurrency
 from valutatrade_hub.core.exceptions import (
     ApiRequestError,
     CurrencyNotFoundError,
@@ -70,6 +70,12 @@ def _build_parser() -> CommandParser:
     return parser
 
 
+def _format_portfolio_value(value: float, base: str) -> str:
+    if isinstance(CURRENCY_REGISTRY[base], CryptoCurrency) or 0 < value < 0.01:
+        return _format_rate(value)
+    return f"{value:,.2f}"
+
+
 def _show_portfolio(user_id: int, base_currency: str | None) -> None:
     user, base, rows, total = usecases.show_portfolio(user_id, base_currency)
     print(f"Портфель пользователя {user.username!r} (база: {base}):")
@@ -80,9 +86,9 @@ def _show_portfolio(user_id: int, base_currency: str | None) -> None:
     table.align["Баланс"] = "r"
     table.align[f"Стоимость ({base})"] = "r"
     for code, balance, value in rows:
-        table.add_row([code, f"{balance:.12g}", f"{value:,.2f}"])
+        table.add_row([code, f"{balance:.12g}", _format_portfolio_value(value, base)])
     print(table)
-    print(f"ИТОГО: {total:,.2f} {base}")
+    print(f"ИТОГО: {_format_portfolio_value(total, base)} {base}")
 
 
 def _print_trade(command: str, trade: usecases.TradeResult) -> None:
