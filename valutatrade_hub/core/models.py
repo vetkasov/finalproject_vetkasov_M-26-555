@@ -6,6 +6,7 @@ from hashlib import pbkdf2_hmac
 from hmac import compare_digest
 from secrets import token_hex
 
+from .exceptions import InsufficientFundsError, RateUnavailableError
 from .utils import is_finite_number, normalize_code, validate_amount
 
 PASSWORD_ITERATIONS = 600_000
@@ -27,7 +28,8 @@ def convert_rate(from_code: str, to_code: str, rates: dict[str, float]) -> float
         source = 1.0 if from_code == "USD" else rates[f"{from_code}_USD"]
         target = 1.0 if to_code == "USD" else rates[f"{to_code}_USD"]
     except KeyError as exc:
-        raise ValueError(f"Не найден курс для {exc.args[0].replace('_', '→')}") from exc
+        pair = exc.args[0].replace("_", "→")
+        raise RateUnavailableError(f"Не найден курс для {pair}") from exc
     return source / target
 
 
@@ -133,11 +135,7 @@ class Wallet:
         """Списать сумму, если средств достаточно."""
         validate_amount(amount)
         if amount > self.balance:
-            raise ValueError(
-                f"Недостаточно средств: доступно "
-                f"{self.balance:g} {self.currency_code}, "
-                f"требуется {amount:g} {self.currency_code}"
-            )
+            raise InsufficientFundsError(self.balance, amount, self.currency_code)
         self.balance = float(Decimal(str(self.balance)) - Decimal(str(amount)))
 
     def get_balance_info(self) -> str:

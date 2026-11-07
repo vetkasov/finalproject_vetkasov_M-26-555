@@ -24,3 +24,13 @@ include = ["valutatrade_hub", "main.py", "README.md", "Makefile", "pyproject.tom
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.valutatrade]
+data_dir = "data"
+log_dir = "logs"
+rates_ttl_seconds = 300
+default_base_currency = "USD"
+log_format = "%(levelname)s %(asctime)s %(name)s %(message)s"
+log_level = "INFO"
+log_max_bytes = 1048576
+log_backups = 3

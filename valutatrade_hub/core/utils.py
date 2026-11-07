@@ -1,9 +1,8 @@
-"""Проверки входных данных и работа с JSON."""
+"""Проверки входных данных и представление времени в UTC."""
 
-import json
 import math
 import re
-from pathlib import Path
+from datetime import UTC, datetime
 
 
 def normalize_code(code: str) -> str:
@@ -15,7 +14,10 @@ def normalize_code(code: str) -> str:
 
 def is_finite_number(value: object) -> bool:
     """Проверить, что значение — конечное число, пригодное для расчётов."""
-    return type(value) in (int, float) and math.isfinite(value)
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def validate_amount(amount: float) -> None:
@@ -24,18 +26,14 @@ def validate_amount(amount: float) -> None:
         raise ValueError("'amount' должен быть положительным числом")
 
 
-def read_json(path: Path, default):
-    """Прочитать JSON, используя значение по умолчанию для нового файла."""
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return default
+def utc_now() -> str:
+    """Вернуть текущее время в формате ISO с суффиксом Z."""
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def write_json(path: Path, data) -> None:
-    """Сохранить данные в JSON."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+def parse_utc(value: str) -> datetime:
+    """Прочитать ISO-дату, считая старые записи без зоны временем UTC."""
+    timestamp = datetime.fromisoformat(value)
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(UTC)

@@ -7,6 +7,12 @@ from datetime import datetime
 from prettytable import PrettyTable
 
 from valutatrade_hub.core import usecases
+from valutatrade_hub.core.currencies import CURRENCY_REGISTRY
+from valutatrade_hub.core.exceptions import (
+    ApiRequestError,
+    CurrencyNotFoundError,
+    ValutaTradeError,
+)
 
 
 class CommandHelp(Exception):
@@ -38,7 +44,7 @@ def _build_parser() -> CommandParser:
         command.add_argument("--password", required=True)
 
     portfolio = commands.add_parser("show-portfolio", help="Показать портфель")
-    portfolio.add_argument("--base", default="USD")
+    portfolio.add_argument("--base")
 
     for name, description in (
         ("buy", "Купить валюту"),
@@ -55,7 +61,7 @@ def _build_parser() -> CommandParser:
     return parser
 
 
-def _show_portfolio(user_id: int, base_currency: str) -> None:
+def _show_portfolio(user_id: int, base_currency: str | None) -> None:
     user, base, rows, total = usecases.show_portfolio(user_id, base_currency)
     print(f"Портфель пользователя {user.username!r} (база: {base}):")
     if not rows:
@@ -79,7 +85,7 @@ def _print_trade(command: str, trade: usecases.TradeResult) -> None:
             "Оценочная стоимость покупки" if command == "buy" else "Оценочная выручка"
         )
         print(f"Курс: {trade.rate:.8g} {trade.base}/{trade.currency}")
-        print(f"{label}: {trade.amount * trade.rate:,.2f} {trade.base}")
+        print(f"{label}: {trade.estimated_value:,.2f} {trade.base}")
 
 
 def _format_rate(rate: float) -> str:
@@ -147,5 +153,10 @@ def run() -> None:
                 _print_trade(args.command, result)
         except CommandHelp:
             continue
-        except (ValueError, OSError) as exc:
+        except CurrencyNotFoundError as exc:
+            print(exc)
+            print(f"Поддерживаемые валюты: {', '.join(sorted(CURRENCY_REGISTRY))}")
+        except ApiRequestError as exc:
+            print(f"{exc}. Проверьте сеть и повторите попытку позже.")
+        except (ValutaTradeError, ValueError, OSError) as exc:
             print(exc)
