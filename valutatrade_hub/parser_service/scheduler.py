@@ -18,7 +18,7 @@ def run_scheduler(config: ParserConfig | None = None) -> None:
     while True:
         try:
             updater.run_update()
-        except (ApiRequestError, OSError) as exc:
+        except (ApiRequestError, OSError, ValueError) as exc:
             logger.error("Scheduled update failed: %s", exc)
         time.sleep(config.UPDATE_INTERVAL_SECONDS)
 

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from valutatrade_hub.decorators import log_action
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.parser_service.storage import read_snapshot
 from valutatrade_hub.parser_service.updater import build_updater
 
 from .currencies import CryptoCurrency, get_currency
@@ -57,7 +58,7 @@ def _load_user(record: dict) -> User:
 
 def register(username: str, password: str) -> User:
     """Зарегистрировать пользователя с пустым портфелем."""
-    with DatabaseManager().transaction():
+    with DatabaseManager().transaction(SettingsLoader().get("data_dir")):
         users = _read("users_file", [])
         user_id = max((row["user_id"] for row in users), default=0) + 1
         user = User(user_id, username, "", "", datetime.now(UTC))
@@ -115,7 +116,7 @@ def _base_code(base_currency: str | None) -> str:
 
 
 def _snapshot() -> dict:
-    return _read("rates_file", {"pairs": {}, "last_refresh": None})
+    return read_snapshot(SettingsLoader().data_path("rates_file"))
 
 
 def _rates(pairs: dict) -> dict[str, float]:
@@ -153,7 +154,7 @@ def _trade(
 ) -> TradeResult:
     code = get_currency(currency_code).code
     validate_amount(amount)
-    with DatabaseManager().transaction():
+    with DatabaseManager().transaction(SettingsLoader().get("data_dir")):
         records = _read("portfolios_file", [])
         portfolio, record = _find_portfolio(user_id, records)
         wallet = portfolio.get_wallet(code)

@@ -1,9 +1,16 @@
 """Общее JSON-хранилище с атомарной заменой файлов."""
 
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock, RLock
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 class DatabaseManager:
@@ -20,15 +27,32 @@ class DatabaseManager:
                 cls._instance = instance
             return cls._instance
 
-    def transaction(self):
-        """Защитить блок чтение → изменение → запись внутри процесса."""
-        return self._transaction_lock
+    @contextmanager
+    def transaction(self, directory: Path):
+        """Выполнить чтение и запись без вмешательства другого процесса."""
+        with self._transaction_lock:
+            directory.mkdir(parents=True, exist_ok=True)
+            # Блокируем отдельный файл: сами JSON заменяются при записи.
+            with (directory / ".valutatrade.lock").open("a+b") as lock_file:
+                if os.name == "nt":
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                    try:
+                        yield
+                    finally:
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock_file, fcntl.LOCK_EX)
+                    yield
 
-    def read(self, path: Path, default):
-        """Прочитать JSON или вернуть значение для отсутствующего файла."""
+    def read(self, path: Path, default, *, allow_empty: bool = False):
+        """Прочитать JSON, при необходимости допуская пустой файл."""
         with self._transaction_lock:
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                contents = path.read_text(encoding="utf-8")
+                if allow_empty and not contents.strip():
+                    return default
+                return json.loads(contents)
             except FileNotFoundError:
                 return default
             except json.JSONDecodeError as exc:

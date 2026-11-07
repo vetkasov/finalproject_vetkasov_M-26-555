@@ -20,7 +20,15 @@ build-backend = "hatchling.build"
 only-include = ["valutatrade_hub", "main.py"]
 
 [tool.hatch.build.targets.sdist]
-include = ["valutatrade_hub", "data", "main.py", "README.md", "Makefile", "pyproject.toml", "uv.lock"]
+include = [
+    "valutatrade_hub",
+    "main.py",
+    "README.md",
+    "Makefile",
+    "pyproject.toml",
+    "uv.lock",
+    "demo/valutatrade.cast",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
