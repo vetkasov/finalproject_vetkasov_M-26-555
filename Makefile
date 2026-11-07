@@ -1,5 +1,8 @@
 .PHONY: install project lint format build package-install
 
+UV_TOOL_DIR ?= $(CURDIR)/.tools/uv
+UV_TOOL_BIN_DIR ?= $(CURDIR)/.tools/bin
+
 install:
 	uv sync --locked
 
@@ -17,4 +20,5 @@ build:
 	uv build --clear
 
 package-install: build
-	uv tool install --reinstall dist/*.whl
+	UV_TOOL_DIR="$(UV_TOOL_DIR)" UV_TOOL_BIN_DIR="$(UV_TOOL_BIN_DIR)" \
+		uv tool install --reinstall dist/*.whl
