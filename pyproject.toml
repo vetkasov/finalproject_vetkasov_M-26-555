@@ -27,7 +27,6 @@ include = [
     "Makefile",
     "pyproject.toml",
     "uv.lock",
-    "demo/valutatrade.cast",
 ]
 
 [tool.ruff.lint]
