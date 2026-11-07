@@ -6,10 +6,17 @@ from datetime import UTC, datetime
 from valutatrade_hub.decorators import log_action
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.parser_service.updater import build_updater
 
-from .currencies import get_currency
-from .exceptions import CurrencyNotFoundError, InsufficientFundsError, ValutaTradeError
-from .models import EXCHANGE_RATES, Portfolio, User, Wallet, convert_rate
+from .currencies import CryptoCurrency, get_currency
+from .exceptions import (
+    ApiRequestError,
+    CurrencyNotFoundError,
+    InsufficientFundsError,
+    RateUnavailableError,
+    ValutaTradeError,
+)
+from .models import Portfolio, User, Wallet, convert_rate
 from .utils import parse_utc, utc_now, validate_amount
 
 
@@ -107,12 +114,12 @@ def _base_code(base_currency: str | None) -> str:
         raise CurrencyNotFoundError(code, base=True) from None
 
 
-def _rates() -> dict[str, float]:
-    return EXCHANGE_RATES | {
-        key: value["rate"]
-        for key, value in _read("rates_file", {}).items()
-        if isinstance(value, dict) and "rate" in value
-    }
+def _snapshot() -> dict:
+    return _read("rates_file", {"pairs": {}, "last_refresh": None})
+
+
+def _rates(pairs: dict) -> dict[str, float]:
+    return {key: value["rate"] for key, value in pairs.items()}
 
 
 def show_portfolio(user_id: int, base_currency: str | None = None):
@@ -129,9 +136,13 @@ def show_portfolio(user_id: int, base_currency: str | None = None):
     if user is None:
         raise ValutaTradeError(f"Пользователь {user_id} не найден")
     portfolio, _ = _find_portfolio(user_id, _read("portfolios_file", []), user)
-    rates = _rates()
+    rates = _rates(_snapshot()["pairs"])
     rows = [
-        (code, wallet.balance, wallet.balance * convert_rate(code, base, rates))
+        (
+            code,
+            wallet.balance,
+            wallet.balance * convert_rate(code, base, rates) if wallet.balance else 0.0,
+        )
         for code, wallet in sorted(portfolio.wallets.items())
     ]
     return portfolio.user, base, rows, portfolio.get_total_value(base, rates)
@@ -155,7 +166,10 @@ def _trade(
             wallet.withdraw(amount)
         else:
             wallet.deposit(amount)
-        rate = convert_rate(code, "USD", _rates())
+        try:
+            rate = convert_rate(code, "USD", _rates(_snapshot()["pairs"]))
+        except RateUnavailableError:
+            rate = None
         record["wallets"][code] = {"balance": wallet.balance}
         _write("portfolios_file", records)
     return TradeResult(code, amount, before, wallet.balance, rate)
@@ -173,27 +187,87 @@ def sell(user_id: int, currency_code: str, amount: float) -> TradeResult:
     return _trade(user_id, currency_code, amount, selling=True)
 
 
+def _timestamp(pairs: dict, source: str, target: str) -> str:
+    keys = {f"{code}_USD" for code in (source, target) if code != "USD"}
+    return min((pairs[key]["updated_at"] for key in keys), key=parse_utc)
+
+
+def _fresh(pairs: dict, source: str, target: str) -> bool:
+    try:
+        oldest = parse_utc(_timestamp(pairs, source, target))
+    except KeyError:
+        return False
+    return (datetime.now(UTC) - oldest).total_seconds() < SettingsLoader().get(
+        "rates_ttl_seconds"
+    )
+
+
 def get_rate(from_code: str, to_code: str) -> tuple[float, str]:
-    """Вернуть курс из свежего кеша либо обновить его учебными данными."""
+    """Вернуть свежий курс, при необходимости запросив обновление у парсера."""
     source, target = get_currency(from_code).code, get_currency(to_code).code
     if source == target:
         return 1.0, utc_now()
-    now = datetime.now(UTC)
-    ttl = SettingsLoader().get("rates_ttl_seconds")
-    keys = [f"{code}_USD" for code in (source, target) if code != "USD"]
-    with DatabaseManager().transaction():
-        cached = _read("rates_file", {})
-        if any(
-            key not in cached
-            or (now - parse_utc(cached[key]["updated_at"])).total_seconds() >= ttl
-            for key in keys
-        ):
-            timestamp = utc_now()
-            cached = {
-                key: {"rate": rate, "updated_at": timestamp}
-                for key, rate in EXCHANGE_RATES.items()
-            }
-            _write("rates_file", cached)
-    rates = {key: value["rate"] for key, value in cached.items()}
-    timestamp = min((cached[key]["updated_at"] for key in keys), key=parse_utc)
-    return convert_rate(source, target, rates), timestamp
+    pairs = _snapshot()["pairs"]
+    if not _fresh(pairs, source, target):
+        update = build_updater().run_update()
+        pairs = _snapshot()["pairs"]
+        if not _fresh(pairs, source, target):
+            reason = f"курс {source}→{target} недоступен или устарел"
+            if update.errors:
+                reason += f". {' / '.join(update.errors)}"
+            raise ApiRequestError(reason)
+    return convert_rate(source, target, _rates(pairs)), _timestamp(
+        pairs, source, target
+    )
+
+
+@dataclass
+class RateRow:
+    """Строка таблицы кеша с курсом и временем его обновления."""
+
+    code: str
+    rate: float
+    updated_at: str
+
+
+def show_rates(
+    currency_code: str | None = None,
+    top: int | None = None,
+    base_currency: str | None = None,
+) -> tuple[str, list[RateRow]]:
+    """Прочитать кеш и применить фильтры валюты, рейтинга и базы."""
+    base = _base_code(base_currency)
+    currency = None if currency_code is None else get_currency(currency_code).code
+    if top is not None and top <= 0:
+        raise ValueError("'top' должен быть положительным целым числом")
+    snapshot = _snapshot()
+    pairs = snapshot["pairs"]
+    if not pairs:
+        raise RateUnavailableError("Кеш курсов пуст. Сначала выполните update-rates.")
+    rates = _rates(pairs)
+    codes = {pair.removesuffix("_USD") for pair in pairs}
+    if currency:
+        codes = {currency} if currency in codes or currency == "USD" else set()
+        if not codes:
+            raise RateUnavailableError(
+                f"Курса {currency} нет в кеше. Выполните update-rates."
+            )
+    if top is None:
+        ordered = sorted(codes)
+    else:
+        crypto = (
+            code for code in codes if isinstance(get_currency(code), CryptoCurrency)
+        )
+        ordered = sorted(crypto, key=lambda code: rates[f"{code}_USD"], reverse=True)[
+            :top
+        ]
+    return base, [
+        RateRow(
+            code,
+            convert_rate(code, base, rates),
+            _timestamp(pairs, code, base)
+            if (code, base) != ("USD", "USD")
+            else snapshot["last_refresh"],
+        )
+        for code in ordered
+    ]

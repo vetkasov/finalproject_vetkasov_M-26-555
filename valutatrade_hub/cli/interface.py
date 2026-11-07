@@ -11,8 +11,11 @@ from valutatrade_hub.core.currencies import CURRENCY_REGISTRY
 from valutatrade_hub.core.exceptions import (
     ApiRequestError,
     CurrencyNotFoundError,
+    RateUnavailableError,
     ValutaTradeError,
 )
+from valutatrade_hub.logging_config import parser_console
+from valutatrade_hub.parser_service.updater import build_updater
 
 
 class CommandHelp(Exception):
@@ -57,6 +60,12 @@ def _build_parser() -> CommandParser:
     rate = commands.add_parser("get-rate", help="Посмотреть курс")
     rate.add_argument("--from", dest="from_code", required=True)
     rate.add_argument("--to", dest="to_code", required=True)
+    update = commands.add_parser("update-rates", help="Обновить кеш курсов")
+    update.add_argument("--source", choices=("coingecko", "exchangerate"))
+    rates = commands.add_parser("show-rates", help="Показать кеш курсов")
+    rates.add_argument("--currency")
+    rates.add_argument("--top", type=int)
+    rates.add_argument("--base")
     commands.add_parser("exit", help="Выйти из программы")
     return parser
 
@@ -86,18 +95,54 @@ def _print_trade(command: str, trade: usecases.TradeResult) -> None:
         )
         print(f"Курс: {trade.rate:.8g} {trade.base}/{trade.currency}")
         print(f"{label}: {trade.estimated_value:,.2f} {trade.base}")
+    else:
+        print("Оценка в USD недоступна. Выполните update-rates.")
 
 
 def _format_rate(rate: float) -> str:
     return f"{rate:.8f}".rstrip("0").rstrip(".") if rate >= 1e-8 else f"{rate:.8g}"
 
 
+def _format_timestamp(timestamp: str) -> str:
+    return datetime.fromisoformat(timestamp).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
 def _show_rate(from_code: str, to_code: str) -> None:
-    rate, updated_at = usecases.get_rate(from_code, to_code)
+    try:
+        rate, updated_at = usecases.get_rate(from_code, to_code)
+    except ApiRequestError as exc:
+        raise RateUnavailableError(
+            f"Курс {from_code.upper()}→{to_code.upper()} недоступен. "
+            f"{exc}. Повторите позже или выполните update-rates."
+        ) from exc
     source, target = from_code.upper(), to_code.upper()
-    timestamp = datetime.fromisoformat(updated_at).strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = _format_timestamp(updated_at)
     print(f"Курс {source}→{target}: {_format_rate(rate)} (обновлено: {timestamp})")
     print(f"Обратный курс {target}→{source}: {_format_rate(1 / rate)}")
+
+
+def _update_rates(source: str | None) -> None:
+    with parser_console():
+        result = build_updater(source).run_update()
+    status = "Update completed with errors" if result.errors else "Update successful"
+    print(
+        f"{status}. Курсов обновлено: {result.updated_count}. "
+        f"Кеш обновлён: {_format_timestamp(result.last_refresh)}."
+    )
+
+
+def _show_rates(args: argparse.Namespace) -> None:
+    base, rows = usecases.show_rates(args.currency, args.top, args.base)
+    if not rows:
+        print("В кеше нет курсов по выбранным фильтрам.")
+        return
+    table = PrettyTable(["Валюта", f"Курс ({base})", "Обновлено"])
+    table.align[f"Курс ({base})"] = "r"
+    for row in rows:
+        table.add_row(
+            [row.code, _format_rate(row.rate), _format_timestamp(row.updated_at)]
+        )
+    print(table)
 
 
 def _print_help(parser: CommandParser, words: list[str]) -> None:
@@ -143,6 +188,10 @@ def run() -> None:
                 print(f"Вы вошли как {current_user.username!r}")
             elif args.command == "get-rate":
                 _show_rate(args.from_code, args.to_code)
+            elif args.command == "update-rates":
+                _update_rates(args.source)
+            elif args.command == "show-rates":
+                _show_rates(args)
             elif current_user is None:
                 print("Сначала выполните login")
             elif args.command == "show-portfolio":

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "ValutaTrade Hub — консольный симулятор валютного портфеля"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["prettytable>=3.12,<4"]
+dependencies = ["prettytable>=3.12,<4", "requests>=2.32,<3"]
 
 [project.scripts]
 project = "main:main"
@@ -20,7 +20,7 @@ build-backend = "hatchling.build"
 only-include = ["valutatrade_hub", "main.py"]
 
 [tool.hatch.build.targets.sdist]
-include = ["valutatrade_hub", "main.py", "README.md", "Makefile", "pyproject.toml", "uv.lock"]
+include = ["valutatrade_hub", "data", "main.py", "README.md", "Makefile", "pyproject.toml", "uv.lock"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

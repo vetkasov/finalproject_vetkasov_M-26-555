@@ -1,6 +1,7 @@
 """Ротация и формат журналов приложения."""
 
 import logging
+from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 from time import gmtime
 
@@ -28,3 +29,18 @@ def get_file_logger(name: str, level: int | str | None = None) -> logging.Logger
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
+
+
+@contextmanager
+def parser_console():
+    """Показывать логи парсера в консоли только во время update-rates."""
+    logger = get_file_logger("parser", logging.DEBUG)
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
