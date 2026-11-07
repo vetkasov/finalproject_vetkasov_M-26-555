@@ -101,7 +101,7 @@ PBKDF2-HMAC-SHA256 с индивидуальной солью. Успешный 
 - `valutatrade_hub/parser_service/` — клиенты API, обновление и история курсов.
 - `valutatrade_hub/cli/` — команды, форматирование вывода и текущая сессия.
 
-[Смотреть запись работы терминала на asciinema.org](https://asciinema.org/a/kyAxDGOVyT3RsSX7).
+[Смотреть запись работы терминала на asciinema.org](https://asciinema.org/a/H92A7aYCkADhoNi3).
 В записи показаны обновление курсов из CoinGecko и ExchangeRate-API,
 фильтры кеша, регистрация, вход, покупка и продажа, оценка портфеля
 в USD и EUR, запросы курсов и обработка ошибок.
